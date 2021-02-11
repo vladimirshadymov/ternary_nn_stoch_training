@@ -27,10 +27,11 @@ class DiscreteHardtanhFunction(Function):
         return grad_input
 
 class Discretization(nn.Module):
-    def __init__(self, min=-1, max=1):
+    def __init__(self, min=-1, max=1, discrt_lvls=2):
         super(Binarization, self).__init__()
         self.min = min
         self.max = max
+        self.discrt_lvls = discrt_lvls
 
     def forward(self, input):
-        return 0.5*(DiscreteHardtanhFunction.apply(input)*(self.max - self.min) + self.min + self.max)
+        return 0.5*(DiscreteHardtanhFunction.apply(input, self.discrt_lvls)*(self.max - self.min) + self.min + self.max)
