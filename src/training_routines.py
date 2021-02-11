@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from binarized_layers import BinarizedLinear
 
 def train(args, model, device, train_loader, optimizer, epoch):
     model.train()
@@ -13,7 +12,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         # num_classes = 10
         # one_hot_target = (target_new == torch.arange(num_classes).reshape(1, num_classes).to(device)).float().add(-0.1).div(0.3)
         # loss = F.mse_loss(output, one_hot_target, reduction='sum')
-        loss = F.cross_entropy(output, target, reduction='mean')
+        loss = F.cross_entropy(output, target, reduction='sum')
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
@@ -53,11 +52,11 @@ def test(args, model, device, test_loader, train_loader=None, test_accuracy=None
             for data, target in train_loader:
                 data, target = data.to(device), target.to(device)
                 output = model(data)
-                target_new = target.reshape(1, 1)
-                num_classes = 10
-                one_hot_target = (target_new == torch.arange(num_classes).reshape(1, num_classes).to(device)).float().add(-0.1).div(0.3)
-                test_loss += F.mse_loss(output, one_hot_target, reduction='sum').item()
-                # train_loss += F.cross_entropy(output, target, reduction='sum').item()  # sum up batch loss
+                # target_new = target.reshape(1, 1)
+                # num_classes = 10
+                # one_hot_target = (target_new == torch.arange(num_classes).reshape(1, num_classes).to(device)).float().add(-0.1).div(0.3)
+                # test_loss += F.mse_loss(output, one_hot_target, reduction='sum').item()
+                train_loss += F.cross_entropy(output, target, reduction='sum').item()  # sum up batch loss
                 pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
                 correct += pred.eq(target.view_as(pred)).sum().item()
 

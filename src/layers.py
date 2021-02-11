@@ -13,7 +13,7 @@ class DiscreteHardtanhFunction(Function):
     def forward(ctx, input, discrt_lvls=2):
         ctx.save_for_backward(input)  # save input for backward pass
 
-        return F.hardtanh(input).add(1.).mul(discrt_lvls/2).round().div(discrt_lvls/2).add(-1.)
+        return F.hardtanh(input).add(1.).mul((discrt_lvls-1)/2).round().div((discrt_lvls-1)/2).add(-1.)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -24,7 +24,7 @@ class DiscreteHardtanhFunction(Function):
         grad_input[torch.abs(input) > 1 ] = 0.
         grad_input = grad_input * grad_output
 
-        return grad_input
+        return grad_input, None
 
 class Discretization(nn.Module):
     def __init__(self, min=-1, max=1, discrt_lvls=2):
@@ -47,4 +47,5 @@ class DiscretizedLinear(nn.Linear):
 
     def forward(self, input):
         self.weight.data = F.hardtanh_(self.weight.data)
+        # print(self.discretization(self.weight).unique())
         return F.linear(input, self.discretization(self.weight), bias=self.bias)

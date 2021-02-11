@@ -15,25 +15,26 @@ import numpy as np
 
 class MnistDense3NN(nn.Module):
     def __init__(self, hidden_layer_size=100, discrt_lvls=3):
-        super(MnistDenseBNN, self).__init__()
+        super(MnistDense3NN, self).__init__()
         self.hidden_layer_size = hidden_layer_size
         self.min_weight = -1.0
         self.max_weight = +1.0
+        self.discrt_lvls = discrt_lvls
 
         self.layer1 = nn.Sequential(
-            DiscretizedLinear(in_features=28*28, out_features=hidden_layer_size, min_weight=self.min_weight, max_weight=self.max_weight)
+            DiscretizedLinear(in_features=28*28, out_features=hidden_layer_size, min_weight=self.min_weight, max_weight=self.max_weight, discrt_lvls=discrt_lvls),
             nn.LayerNorm(hidden_layer_size),
             nn.Tanh()
         )
 
         self.layer2 = nn.Sequential(
-            DiscretizedLinear(in_features=hidden_layer_size, out_features=hidden_layer_size, min_weight=self.min_weight, max_weight=self.max_weight)
+            DiscretizedLinear(in_features=hidden_layer_size, out_features=hidden_layer_size, min_weight=self.min_weight, max_weight=self.max_weight, discrt_lvls=discrt_lvls),
             nn.LayerNorm(hidden_layer_size),
             nn.Tanh()
         )
 
         self.layer3 = nn.Sequential(
-            DiscretizedLinear(in_features=hidden_layer_size, out_features=10, min_weight=self.min_weight, max_weight=self.max_weight)
+            DiscretizedLinear(in_features=hidden_layer_size, out_features=10, min_weight=self.min_weight, max_weight=self.max_weight, discrt_lvls=discrt_lvls),
             nn.LayerNorm(10)
         )
 
@@ -72,8 +73,8 @@ def main():
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     
-    HIDDEN_SIZE = 150
-    DISCRETE_LVLS_NUMBER = 2
+    HIDDEN_SIZE = 100
+    DISCRETE_LVLS_NUMBER = 8
 
     torch.manual_seed(args.seed)
 
@@ -95,8 +96,8 @@ def main():
         ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-    model = MnistDense3NN(HIDDEN_SIZE, DISCRETE_LVLS_NUMBER).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-10)
+    model = MnistDense3NN(hidden_layer_size=HIDDEN_SIZE, discrt_lvls=DISCRETE_LVLS_NUMBER).to(device)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=0)
     scheduler = MultiStepLR(optimizer, milestones=[20,80,150,250,400], gamma=0.7)
 
     test_accuracy = []
