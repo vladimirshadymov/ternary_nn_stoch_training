@@ -62,3 +62,35 @@ class DiscretizedConv2d(nn.Conv2d):
     def forward(self, input):
         self.weight.data = nn.functional.hardtanh_(self.weight.data)
         return F.conv2d(input, self.discretization(self.weight), self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+class BinarizeFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+
+        output = input.clone()
+        output[output >= 0] = 1.
+        output[output < 0] = -1
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, = ctx.saved_tensors
+        grad_input = input.clone()
+        grad_input[torch.abs(input) <= 1.] = 1.
+        grad_input[torch.abs(input) > 1.] = 0.
+        grad_input = grad_input * grad_output
+
+        return grad_input
+
+class Binarization(nn.Module):
+
+    def __init__(self, min=-1, max=1):
+        super(Binarization, self).__init__()
+        self.min = min
+        self.max = max
+
+    def forward(self, input):
+        return 0.5*(BinarizeFunction.apply(input)*(self.max - self.min) + self.min + self.max)
