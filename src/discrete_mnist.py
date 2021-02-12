@@ -73,7 +73,7 @@ def main():
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     
-    HIDDEN_SIZE = 100
+    HIDDEN_SIZE = 50
     DISCRETE_LVLS_NUMBER = 8
 
     torch.manual_seed(args.seed)

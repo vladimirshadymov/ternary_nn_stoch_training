@@ -49,3 +49,16 @@ class DiscretizedLinear(nn.Linear):
         self.weight.data = F.hardtanh_(self.weight.data)
         # print(self.discretization(self.weight).unique())
         return F.linear(input, self.discretization(self.weight), bias=self.bias)
+
+class DiscretizedConv2d(nn.Conv2d):
+
+    def __init__(self, min_weight=-1, max_weight=1, discrt_lvls=2, *kargs, **kwargs):
+        super(DiscretizedConv2d, self).__init__(*kargs, **kwargs)
+        self.min_weight = min_weight
+        self.max_weight = max_weight
+        self.discrt_lvls = discrt_lvls
+        self.discretization = Discretization(min=min_weight, max=max_weight, discrt_lvls=discrt_lvls)
+
+    def forward(self, input):
+        self.weight.data = nn.functional.hardtanh_(self.weight.data)
+        return F.conv2d(input, self.discretization(self.weight), self.bias, self.stride, self.padding, self.dilation, self.groups)
