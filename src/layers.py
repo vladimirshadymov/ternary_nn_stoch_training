@@ -105,7 +105,7 @@ class StochasticTernaryLinearFunction(Function):
         weight_p.data = torch.where(weight_p.data>=0, torch.zeros_like(weight_p).add(1.0), torch.zeros_like(weight_p).add(-1.0))
         weight_n.data = torch.where(weight_n.data>=0, torch.zeros_like(weight_n).add(1.0), torch.zeros_like(weight_n).add(-1.0))
 
-        output = input.mm(weight_p.add(-weight_n).mul(0.5).t())
+        output = input.mm(weight_p.add(-weight_n).mul(max_val - min_val).add(min_val + max_val).mul(0.25).t())
         if bias is not None:
             output += bias.unsqueeze(0).expand_as(output)
         return output
@@ -139,7 +139,7 @@ class StochasticTernaryLinearFunction(Function):
         weight_n.data = torch.where(weight_n.data >=0, torch.zeros_like(weight_n).add(1.0), torch.zeros_like(weight_n).add(-1.0))
 
         if ctx.needs_input_grad[0]:
-            grad_input = grad_output.mm(weight)
+            grad_input = grad_output.mm(weight_p.add(-weight_n).mul(max_val - min_val).add(min_val + max_val).mul(0.25))
 
         if ctx.needs_input_grad[1]:
             grad_weight_p = grad_output.t().mm(input)
@@ -160,7 +160,7 @@ class StochasticTernaryLinearFunction(Function):
             del tmp
         
         if ctx.needs_input_grad[2]:
-            grad_weight_n = grad_output.t().mm(input)
+            grad_weight_n = grad_output.t().mm(-input)
             
             tmp = grad_output.abs().mul(time_lr*switching_time_add).add(switching_time_critical).div(-T*0.5).t().mm(torch.ones_like(input))
             tmp = torch.where(weight_n.data>=0, tmp.mul(high_to_low_cond_current_add1).mul(input.abs()).add(high_to_low_cond_current_add0-high_to_low_cond_current_critical), tmp.mul(low_to_high_cond_current_add1).mul(input.abs()).add(low_to_high_cond_current_add0-low_to_high_cond_current_critical))
