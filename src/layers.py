@@ -94,3 +94,114 @@ class Binarization(nn.Module):
 
     def forward(self, input):
         return 0.5*(BinarizeFunction.apply(input)*(self.max - self.min) + self.min + self.max)
+
+class StochasticTernaryLinearFunction(Function):
+    @staticmethod
+    def forward(ctx, input, weight_p, weight_n, bias=None, min_val=-1, max_val=+1):
+        ctx.save_for_backward(input, weight_p, weight_n, bias)
+        ctx.min_val = min_val
+        ctx.max_val = max_val
+        
+        weight_p.data = torch.where(weight_p.data>=0, torch.zeros_like(weight_p).add(1.0), torch.zeros_like(weight_p).add(-1.0))
+        weight_n.data = torch.where(weight_n.data>=0, torch.zeros_like(weight_n).add(1.0), torch.zeros_like(weight_n).add(-1.0))
+
+        output = input.mm(weight_p.add(-weight_n).mul(0.5).t())
+        if bias is not None:
+            output += bias.unsqueeze(0).expand_as(output)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, weight_p, weight_n, bias, = ctx.saved_tensors
+        grad_input = grad_weight_p = grad_weight_n = grad_bias = None
+        min_val = ctx.min_val
+        max_val = ctx.max_val   
+
+        current_add0 = 60
+        current_add1 = 30
+
+        low_to_high_cond_current_critical = 64.5 # mkA critical current to switch from low to high cell's conductivity. From Parallel to Anti-Parallel State
+        low_to_high_cond_current_add0 = 140  
+        low_to_high_cond_current_add1 = 60 # mkA additional current to switch from low to high cell's conductivity. From Parallel to Anti-Parallel State
+
+        high_to_low_cond_current_critical = 21.2 # mkA critical current to switch from high to low cell's conductivity. From Anti-Parallel to Parallel State
+        high_to_low_cond_current_add0 = 60
+        high_to_low_cond_current_add1 = 30 # mkA additional current to switch from high to low cell's conductivity. From Anti-Parallel to Parallel State
+
+        switching_time_critical = 1.5 # ns
+        switching_time_add = 1.0 # ns
+        
+        delta = 40.88#-15
+        T = 57.09#+4
+        time_lr = 0.7
+
+        weight_p.data = torch.where(weight_p.data >=0, torch.zeros_like(weight_p).add(1.0), torch.zeros_like(weight_p).add(-1.0))
+        weight_n.data = torch.where(weight_n.data >=0, torch.zeros_like(weight_n).add(1.0), torch.zeros_like(weight_n).add(-1.0))
+
+        if ctx.needs_input_grad[0]:
+            grad_input = grad_output.mm(weight)
+
+        if ctx.needs_input_grad[1]:
+            grad_weight_p = grad_output.t().mm(input)
+            
+            tmp = grad_output.abs().mul(time_lr*switching_time_add).add(switching_time_critical).div(-T*0.5).t().mm(torch.ones_like(input))
+            tmp = torch.where(weight_p.data>=0, tmp.mul(high_to_low_cond_current_add1).mul(input.abs()).add(high_to_low_cond_current_add0-high_to_low_cond_current_critical), tmp.mul(low_to_high_cond_current_add1).mul(input.abs()).add(low_to_high_cond_current_add0-low_to_high_cond_current_critical))
+            tmp.exp_().mul_(-4*delta) 
+            tmp2 = torch.zeros_like(weight_p.data).add(input.abs())
+            tmp2 = torch.where(weight_p.data>=0, tmp2.abs().mul(high_to_low_cond_current_add1).add(high_to_low_cond_current_add0).div(high_to_low_cond_current_critical), tmp2.abs().mul(low_to_high_cond_current_add1).add(low_to_high_cond_current_add0).div(low_to_high_cond_current_critical))
+            tmp2 = torch.pow(tmp2.mul(2).div(tmp2.add(-1)), -2/(tmp2.add(1)))
+            tmp.mul_(tmp2).exp_()
+            del tmp2
+            tmp = torch.bernoulli(tmp)
+
+            grad_weight_p.data.sign_().mul_(1e7)
+            grad_weight_p.data.mul_(tmp)
+
+            del tmp
+        
+        if ctx.needs_input_grad[2]:
+            grad_weight_n = grad_output.t().mm(input)
+            
+            tmp = grad_output.abs().mul(time_lr*switching_time_add).add(switching_time_critical).div(-T*0.5).t().mm(torch.ones_like(input))
+            tmp = torch.where(weight_n.data>=0, tmp.mul(high_to_low_cond_current_add1).mul(input.abs()).add(high_to_low_cond_current_add0-high_to_low_cond_current_critical), tmp.mul(low_to_high_cond_current_add1).mul(input.abs()).add(low_to_high_cond_current_add0-low_to_high_cond_current_critical))
+            tmp.exp_().mul_(-4*delta) 
+            tmp2 = torch.zeros_like(weight_n.data).add(input.abs())
+            tmp2 = torch.where(weight_n.data>=0, tmp2.abs().mul(high_to_low_cond_current_add1).add(high_to_low_cond_current_add0).div(high_to_low_cond_current_critical), tmp2.abs().mul(low_to_high_cond_current_add1).add(low_to_high_cond_current_add0).div(low_to_high_cond_current_critical))
+            tmp2 = torch.pow(tmp2.mul(2).div(tmp2.add(-1)), -2/(tmp2.add(1)))
+            tmp.mul_(tmp2).exp_()
+            del tmp2
+            tmp = torch.bernoulli(tmp)
+
+            grad_weight_n.data.sign_().mul_(1e7)
+            grad_weight_n.data.mul_(tmp)
+
+            del tmp            
+
+        if bias is not None and ctx.needs_input_grad[3]:
+            grad_bias = grad_output.sum(0)
+
+        return grad_input, grad_weight_p, grad_weight_n, grad_bias, None, None
+
+class StochasticTernaryLinear(nn.Module):
+    def __init__(self, in_features: int, out_features: int, bias: bool = True, min_val=-1, max_val=+1):
+        super(StochasticTernaryLinear, self).__init__()
+        self.func = StochasticTernaryLinearFunction.apply
+        self.min_val = min_val
+        self.max_val = max_val
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight_p = Parameter(torch.Tensor(out_features, in_features))
+        self.weight_n = Parameter(torch.Tensor(out_features, in_features))
+        if bias:
+            self.bias = Parameter(torch.Tensor(out_features))
+        else:
+            self.bias = None
+
+        self.weight_p.data.uniform_(-0.1, 0.1)
+        self.weight_n.data.uniform_(-0.1, 0.1)
+
+        if self.bias is not None:
+            self.bias.data.uniform_(-0.1, 0.1)
+
+    def forward(self, input):
+        return self.func(input, self.weight_p, self.weight_n, self.bias, self.min_val, self.max_val)
