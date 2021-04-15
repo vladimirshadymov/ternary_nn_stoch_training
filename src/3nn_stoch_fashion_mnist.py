@@ -75,31 +75,27 @@ def main():
     HIDDEN_SIZE = 700
 
     torch.manual_seed(args.seed)
-    # np.random.seed(0)
-    # torch.manual_seed(0)
-    # torch.cuda.manual_seed(0)
-    # torch.backends.cudnn.deterministic = True
 
     device = torch.device("cuda:%d" % args.cuda_num if torch.cuda.is_available() and use_cuda else "cpu")
     print("Use device:", device)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
+        datasets.FashionMNIST('../data', train=True, download=True,
                        transform=transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])),
         batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.Compose([
+        datasets.FashionMNIST('../data', train=False, transform=transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))
         ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
     model = MnistDense3NN(hidden_layer_size=HIDDEN_SIZE).to(device)
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=0)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=0)
     scheduler = MultiStepLR(optimizer, milestones=[20,80,150,250,400], gamma=0.7)
 
     test_accuracy = []
@@ -113,10 +109,10 @@ def main():
         
         if epoch>=10:
             if (args.save_model):
-                torch.save(model.state_dict(), f"../model/mnist_stoch_3nn_{HIDDEN_SIZE}.pt")
+                torch.save(model.state_dict(), f"../model/fashion_mnist_stoch_3nn_{HIDDEN_SIZE}.pt")
             d = [train_accuracy, test_accuracy]
             export_data = zip_longest(*d, fillvalue='')
-            with open(f'../model/mnist_stoch_3nn_report_{HIDDEN_SIZE}.csv', 'w', encoding="ISO-8859-1", newline='') as report_file:
+            with open(f'../model/fashion_mnist_stoch_3nn_report_{HIDDEN_SIZE}.csv', 'w', encoding="ISO-8859-1", newline='') as report_file:
                 wr = csv.writer(report_file)
                 wr.writerow(("Train accuracy", "Test accuracy"))
                 wr.writerows(export_data)

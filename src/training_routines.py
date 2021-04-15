@@ -14,7 +14,11 @@ def train(args, model, device, train_loader, optimizer, epoch):
         # loss = F.mse_loss(output, one_hot_target, reduction='sum')
         loss = F.cross_entropy(output, target, reduction='sum')
         loss.backward()
+        # for name, param in model.named_parameters():
+        #     print(f'{name} before step', f'mean val {param.abs().mean().item()}', f'mean grad: {param.grad.abs().mean().item()}', f'max val {param.max().item()}', f'max grad: {param.grad.max().item()}', f'min val {param.min().item()}', f'min grad: {param.grad.min().item()}')
         optimizer.step()
+        # for name, param in model.named_parameters():
+        #     print(f'{name} after step', f'mean val {param.abs().mean().item()}', f'mean grad: {param.grad.abs().mean().item()}', f'max val {param.max().item()}', f'max grad: {param.grad.max().item()}', f'min val {param.min().item()}', f'min grad: {param.grad.min().item()}')
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),

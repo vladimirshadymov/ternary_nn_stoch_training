@@ -133,7 +133,7 @@ class StochasticTernaryLinearFunction(Function):
         
         delta = 40.88#-15
         T = 57.09#+4
-        time_lr = 0.7
+        time_lr = 150
 
         weight_p.data = torch.where(weight_p.data >=0, torch.zeros_like(weight_p).add(1.0), torch.zeros_like(weight_p).add(-1.0))
         weight_n.data = torch.where(weight_n.data >=0, torch.zeros_like(weight_n).add(1.0), torch.zeros_like(weight_n).add(-1.0))
@@ -151,6 +151,7 @@ class StochasticTernaryLinearFunction(Function):
             tmp2 = torch.where(weight_p.data>=0, tmp2.abs().mul(high_to_low_cond_current_add1).add(high_to_low_cond_current_add0).div(high_to_low_cond_current_critical), tmp2.abs().mul(low_to_high_cond_current_add1).add(low_to_high_cond_current_add0).div(low_to_high_cond_current_critical))
             tmp2 = torch.pow(tmp2.mul(2).div(tmp2.add(-1)), -2/(tmp2.add(1)))
             tmp.mul_(tmp2).exp_()
+            # print(f'probability p: {tmp.max().item(), tmp.mean().item()}')
             del tmp2
             tmp = torch.bernoulli(tmp)
 
@@ -169,6 +170,7 @@ class StochasticTernaryLinearFunction(Function):
             tmp2 = torch.where(weight_n.data>=0, tmp2.abs().mul(high_to_low_cond_current_add1).add(high_to_low_cond_current_add0).div(high_to_low_cond_current_critical), tmp2.abs().mul(low_to_high_cond_current_add1).add(low_to_high_cond_current_add0).div(low_to_high_cond_current_critical))
             tmp2 = torch.pow(tmp2.mul(2).div(tmp2.add(-1)), -2/(tmp2.add(1)))
             tmp.mul_(tmp2).exp_()
+            # print(f'probability n: {tmp.max().item(), tmp.mean().item()}')
             del tmp2
             tmp = torch.bernoulli(tmp)
 
@@ -179,6 +181,12 @@ class StochasticTernaryLinearFunction(Function):
 
         if bias is not None and ctx.needs_input_grad[3]:
             grad_bias = grad_output.sum(0)
+
+        # print(f'delta: {grad_output.abs().mean()}')
+        # print(f'input: {input.abs().mean()}')
+        # print(f'grad_weight_p: {grad_weight_p.abs().max()}')
+        # print(f'grad_weight_n: {grad_weight_n.abs().max()}')
+
 
         return grad_input, grad_weight_p, grad_weight_n, grad_bias, None, None
 
