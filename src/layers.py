@@ -66,34 +66,238 @@ class DiscretizedConv2d(nn.Conv2d):
 class BinarizeFunction(Function):
 
     @staticmethod
-    def forward(ctx, input):
+    def forward(ctx, input, scale_factor):
         ctx.save_for_backward(input)
+        ctx.scale_factor = scale_factor
 
         output = input.clone()
-        output[output >= 0] = 1.
-        output[output < 0] = -1
+        output[output >= 0] = 1.*scale_factor
+        output[output < 0] = -1.*scale_factor
 
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         input, = ctx.saved_tensors
+        scale_factor = ctx.scale_factor
         grad_input = input.clone()
-        grad_input[torch.abs(input) <= 1.] = 1.
-        grad_input[torch.abs(input) > 1.] = 0.
+        grad_input[torch.abs(input) <= 1.*scale_factor] = 1.
+        grad_input[torch.abs(input) > 1.*scale_factor] = 0.
         grad_input = grad_input * grad_output
 
-        return grad_input
+        return grad_input, None
 
 class Binarization(nn.Module):
 
-    def __init__(self, min=-1, max=1):
+    def __init__(self, scale_factor):
         super(Binarization, self).__init__()
-        self.min = min
-        self.max = max
+        self.scale_factor = scale_factor
 
     def forward(self, input):
-        return 0.5*(BinarizeFunction.apply(input)*(self.max - self.min) + self.min + self.max)
+        return BinarizeFunction.apply(input, self.scale_factor)
+
+class BinarizedLinear(nn.Linear):
+
+    def __init__(self, scale_factor=1e-2, *kargs, **kwargs):
+        super(BinarizedLinear, self).__init__(*kargs, **kwargs)
+        self.binarization = Binarization(scale_factor=scale_factor)
+        # self.weight.data.uniform_(min_weight, max_weight)
+        # if self.bias is not None:
+        #     self.bias.data.uniform_(-max_weight, -min_weight)
+        self.scale_factor = scale_factor
+        self.noise_on = False
+        self.noise_std = 0.2
+        self.noise = torch.normal(mean=0.0, std=torch.ones_like(self.weight.data)*self.noise_std)
+        
+
+    def forward(self, input):
+        device_num = self.weight.get_device()
+        device = torch.device("cuda:%d" % device_num)
+        self.noise = self.noise.to(device)
+        self.weight.data = nn.functional.hardtanh_(self.weight.data, min_val=-1.*self.scale_factor, max_val=1.*self.scale_factor)
+
+        if self.noise_on:
+            out = nn.functional.linear(input, self.binarization(self.weight)+self.noise, bias=self.bias)
+        else:
+            out = nn.functional.linear(input, self.binarization(self.weight), bias=self.bias)  # linear layer with binarized weights
+        return out
+
+    def quantize_accumulative_weigths(self):
+        self.weight.data = self.binarization(self.weight.data)
+        return
+    
+    def set_noise_std(self, std=0.2):
+        self.noise_std = std
+        self.noise = torch.normal(mean=0.0, std=torch.ones_like(self.weight.data)*self.noise_std)
+        return
+    
+    def set_noise(self, noise_on=True):
+        self.noise_on = noise_on
+        return
+
+    def add_bit_error(self, bit_error_rate = 0):
+        probs = torch.ones_like(self.weight.data).mul_(1 - bit_error_rate) # switching probabilities
+        switching_tensor = torch.bernoulli(probs).mul(2.).add(-1.)
+        self.weight.data.mul_(switching_tensor)
+        return
+
+    def set_random_binary_weights(self, prob = 0.5):
+        self.weight.data = torch.bernoulli(torch.ones_like(self.weight.data)*prob).mul_(2.).add_(-1.)
+        return
+
+class BinarizedConv2d(nn.Conv2d):
+
+    def __init__(self, scale_factor, *kargs, **kwargs):
+        super(BinarizedConv2d, self).__init__(*kargs, **kwargs)
+        self.scale_factor = scale_factor
+        self.binarization = Binarization(scale_factor=scale_factor)
+        self.noise_on = False
+        self.noise_std = 0.2
+        self.noise = torch.normal(mean=0.0, std=torch.ones_like(self.weight.data)*self.noise_std)
+
+    def forward(self, input):
+        device_num = self.weight.get_device()
+        device = torch.device("cuda:%d" % device_num)
+        self.noise = self.noise.to(device)
+        self.weight.data = nn.functional.hardtanh_(self.weight.data, min_val=-1.*self.scale_factor, max_val=1.*self.scale_factor)
+
+        if self.noise_on:
+            return nn.functional.conv2d(input, self.binarization(self.weight)+self.noise, self.bias, self.stride,
+                                    self.padding, self.dilation, self.groups)
+        else:
+            return nn.functional.conv2d(input, self.binarization(self.weight), self.bias, self.stride,
+                                    self.padding, self.dilation, self.groups)
+
+    def quantize_accumulative_weigths(self):
+        self.weight.data = self.binarization(self.weight.data)
+        return
+    
+    def set_noise_std(self, std=0.2):
+        self.noise_std = std
+        self.noise = torch.normal(mean=0.0, std=torch.ones_like(self.weight.data)*self.noise_std)
+        return
+    
+    def set_noise(self, noise_on=True):
+        self.noise_on = noise_on
+        return
+
+class TernarizeFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, scale_factor, threshold):
+        ctx.save_for_backward(input)
+        ctx.scale_factor = scale_factor
+        ctx.threshold = threshold
+
+        output = input.clone()
+        output[output.abs() <= threshold] = 0
+        output[output > threshold] = 1.*scale_factor
+        output[output < threshold] = -1.*scale_factor
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, = ctx.saved_tensors
+        scale_factor = ctx.scale_factor
+        grad_input = input.clone()
+        grad_input[torch.abs(input) <= 1.*scale_factor] = 1.
+        grad_input[torch.abs(input) > 1.*scale_factor] = 0.
+        grad_input = grad_input * grad_output
+
+        return grad_input, None, None
+
+class Ternarization(nn.Module):
+
+    def __init__(self, scale_factor, threshold):
+        super(Ternarization, self).__init__()
+        self.scale_factor = scale_factor
+        self.threshold = threshold
+
+    def forward(self, input):
+        return TernarizeFunction.apply(input, self.scale_factor, self.threshold)
+
+class TernarizedLinear(nn.Linear):
+
+    def __init__(self, scale_factor, threshold, *kargs, **kwargs):
+        super(TernarizedLinear, self).__init__(*kargs, **kwargs)
+        self.ternarization = Ternarization(scale_factor=scale_factor, threshold=threshold)
+        self.scale_factor = scale_factor
+        self.threshold = threshold
+        self.noise_on = False
+        self.noise_std = 0.2
+        self.noise = torch.normal(mean=0.0, std=torch.ones_like(self.weight.data)*self.noise_std)
+
+    def forward(self, input):
+        device_num = self.weight.get_device()
+        device = torch.device("cuda:%d" % device_num)
+        self.noise = self.noise.to(device)
+        self.weight.data = nn.functional.hardtanh_(self.weight.data, min_val=-1.*self.scale_factor, max_val=1.*self.scale_factor)
+
+        if self.noise_on:
+            out = nn.functional.linear(input, self.ternarization(self.weight)+self.noise, bias=self.bias)
+        else:
+            out = nn.functional.linear(input, self.ternarization(self.weight), bias=self.bias)  # linear layer with binarized weights
+        return out
+
+    def quantize_accumulative_weigths(self):
+        self.weight.data = self.ternarization(self.weight.data)
+        return
+    
+    def set_noise_std(self, std=0.2):
+        self.noise_std = std
+        self.noise = torch.normal(mean=0.0, std=torch.ones_like(self.weight.data)*self.noise_std)
+        return
+    
+    def set_noise(self, noise_on=True):
+        self.noise_on = noise_on
+        return
+
+    def add_bit_error(self, bit_error_rate = 0):
+        probs = torch.ones_like(self.weight.data).mul_(1 - bit_error_rate) # switching probabilities
+        switching_tensor = torch.bernoulli(probs).mul(2.).add(-1.)
+        self.weight.data.mul_(switching_tensor)
+        return
+
+    def set_random_binary_weights(self, prob = 0.5):
+        self.weight.data = torch.bernoulli(torch.ones_like(self.weight.data)*prob).mul_(2.).add_(-1.)
+        return
+
+class TernarizedConv2d(nn.Conv2d):
+
+    def __init__(self, scale_factor, threshold, *kargs, **kwargs):
+        super(TernarizedConv2d, self).__init__(*kargs, **kwargs)
+        self.scale_factor = scale_factor
+        self.ternarization = Ternarization(scale_factor=scale_factor, threshold=threshold)
+        self.noise_on = False
+        self.noise_std = 0.2
+        self.noise = torch.normal(mean=0.0, std=torch.ones_like(self.weight.data)*self.noise_std)
+
+    def forward(self, input):
+        device_num = self.weight.get_device()
+        device = torch.device("cuda:%d" % device_num)
+        self.noise = self.noise.to(device)
+        self.weight.data = nn.functional.hardtanh_(self.weight.data, min_val=-1.*self.scale_factor, max_val=1.*self.scale_factor)
+
+        if self.noise_on:
+            return nn.functional.conv2d(input, self.ternarization(self.weight)+self.noise, self.bias, self.stride,
+                                    self.padding, self.dilation, self.groups)
+        else:
+            return nn.functional.conv2d(input, self.ternarization(self.weight), self.bias, self.stride,
+                                    self.padding, self.dilation, self.groups)
+
+    def quantize_accumulative_weigths(self):
+        self.weight.data = self.binarization(self.weight.data)
+        return
+    
+    def set_noise_std(self, std=0.2):
+        self.noise_std = std
+        self.noise = torch.normal(mean=0.0, std=torch.ones_like(self.weight.data)*self.noise_std)
+        return
+    
+    def set_noise(self, noise_on=True):
+        self.noise_on = noise_on
+        return
 
 class StochasticTernaryLinearFunction(Function):
     @staticmethod

@@ -14,7 +14,7 @@ import numpy as np
 
 
 class MnistDense3NN(nn.Module):
-    def __init__(self, hidden_layer_size=100, discrt_lvls=3):
+    def __init__(self, hidden_layer_size=150, discrt_lvls=3):
         super(MnistDense3NN, self).__init__()
         self.hidden_layer_size = hidden_layer_size
         self.min_weight = -1.0
