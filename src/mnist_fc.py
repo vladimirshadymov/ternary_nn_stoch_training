@@ -3,7 +3,7 @@ import os
 import csv
 from itertools import zip_longest
 import torch.nn as nn
-from layers import DiscretizedLinear, Discretization
+# from layers import DiscretizedLinear, Discretization
 from training_routines import train, test
 import argparse
 import torch
@@ -13,29 +13,27 @@ from torch.optim.lr_scheduler import MultiStepLR, CosineAnnealingLR, ReduceLROnP
 import numpy as np
 
 
-class MnistDense3NN(nn.Module):
-    def __init__(self, hidden_layer_size=150, discrt_lvls=3):
-        super(MnistDense3NN, self).__init__()
+class MnistDenseFloat(nn.Module):
+    def __init__(self, hidden_layer_size=150):
+        super(MnistDenseFloat, self).__init__()
         self.hidden_layer_size = hidden_layer_size
         self.min_weight = -1.0
         self.max_weight = +1.0
-        self.discrt_lvls = discrt_lvls
 
         self.layer1 = nn.Sequential(
-            DiscretizedLinear(in_features=28*28, out_features=hidden_layer_size, min_weight=self.min_weight, max_weight=self.max_weight, discrt_lvls=discrt_lvls),
-            nn.LayerNorm(hidden_layer_size),
-            nn.Tanh()
+            nn.Linear(in_features=28*28, out_features=hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.ReLU()
         )
 
         self.layer2 = nn.Sequential(
-            DiscretizedLinear(in_features=hidden_layer_size, out_features=hidden_layer_size, min_weight=self.min_weight, max_weight=self.max_weight, discrt_lvls=discrt_lvls),
-            nn.LayerNorm(hidden_layer_size),
-            nn.Tanh()
+            nn.Linear(in_features=hidden_layer_size, out_features=hidden_layer_size),
+            nn.BatchNorm1d(hidden_layer_size),
+            nn.ReLU()
         )
 
         self.layer3 = nn.Sequential(
-            DiscretizedLinear(in_features=hidden_layer_size, out_features=10, min_weight=self.min_weight, max_weight=self.max_weight, discrt_lvls=discrt_lvls),
-            nn.LayerNorm(10)
+            nn.Linear(in_features=hidden_layer_size, out_features=10)
         )
 
     def forward(self, x):
@@ -73,8 +71,7 @@ def main():
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     
-    HIDDEN_SIZE = 50
-    DISCRETE_LVLS_NUMBER = 8
+    HIDDEN_SIZE = 300
 
     torch.manual_seed(args.seed)
 
@@ -96,9 +93,10 @@ def main():
         ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-    model = MnistDense3NN(hidden_layer_size=HIDDEN_SIZE, discrt_lvls=DISCRETE_LVLS_NUMBER).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=0)
-    scheduler = MultiStepLR(optimizer, milestones=[20,80,150,250,400], gamma=0.7)
+    model = MnistDenseFloat(hidden_layer_size=HIDDEN_SIZE).to(device)
+    # optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=1e-4, momentum=0.9)
+    scheduler = MultiStepLR(optimizer, milestones=[15, 25], gamma=0.1)
 
     test_accuracy = []
     train_accuracy = []
@@ -111,14 +109,17 @@ def main():
         
         if epoch>=10:
             if (args.save_model):
-                torch.save(model.state_dict(), f"../model/mnist_3nn_{HIDDEN_SIZE}_discrt_lvls_{DISCRETE_LVLS_NUMBER}.pt")
+                torch.save(model.state_dict(), f"../model/mnist_fc_{HIDDEN_SIZE}.pt")
             d = [train_accuracy, test_accuracy]
             export_data = zip_longest(*d, fillvalue='')
-            with open(f'../model/mnist_3nn_report_{HIDDEN_SIZE}_discrt_lvls_{DISCRETE_LVLS_NUMBER}.csv', 'w', encoding="ISO-8859-1", newline='') as report_file:
+            with open(f'../model/mnist_fc_report_{HIDDEN_SIZE}.csv', 'w', encoding="ISO-8859-1", newline='') as report_file:
                 wr = csv.writer(report_file)
                 wr.writerow(("Train accuracy", "Test accuracy"))
                 wr.writerows(export_data)
             report_file.close()
+
+    for name, param in model.named_parameters():
+        print(f'{name}: {param.abs().mean().item()}')
 
 if __name__ == '__main__':
     main()

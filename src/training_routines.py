@@ -12,7 +12,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         # num_classes = 10
         # one_hot_target = (target_new == torch.arange(num_classes).reshape(1, num_classes).to(device)).float().add(-0.1).div(0.3)
         # loss = F.mse_loss(output, one_hot_target, reduction='sum')
-        loss = F.cross_entropy(output, target, reduction='sum')
+        loss = F.cross_entropy(output, target, reduction='mean')
         loss.backward()
         # for name, param in model.named_parameters():
         #     print(f'{name} before step', f'mean val {param.abs().mean().item()}', f'mean grad: {param.grad.abs().mean().item()}', f'max val {param.max().item()}', f'max grad: {param.grad.max().item()}', f'min val {param.min().item()}', f'min grad: {param.grad.min().item()}')

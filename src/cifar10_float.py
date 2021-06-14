@@ -10,77 +10,70 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR, MultiStepLR  # manager of lr decay
 
-class Cifar10Conv3NN(nn.Module):
+class Cifar10ConvFloat(nn.Module):
     def __init__(self, discrt_lvls=2.):
-        super(Cifar10Conv3NN, self).__init__()
+        super(Cifar10ConvFloat, self).__init__()
         self.pool = nn.MaxPool2d(2)
         
         self.dp = 0.2
         self.discrt_lvls = discrt_lvls
 
         self.layer128_1 = nn.Sequential(
-            DiscretizedConv2d(in_channels=3, out_channels=128, kernel_size=3, stride=1, padding=1, discrt_lvls=discrt_lvls),
+            nn.Conv2d(in_channels=3, out_channels=128, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(128),
-            nn.Dropout2d(self.dp),
-            nn.CELU()
+            # nn.Dropout2d(self.dp),
+            nn.ReLU()
         )
 
         self.layer128_2 = nn.Sequential(
-            DiscretizedConv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1, discrt_lvls=discrt_lvls),
-            nn.MaxPool2d(2),
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(128),
-            nn.Dropout2d(self.dp),
-            nn.CELU()
+            nn.ReLU(),
+            # nn.Dropout2d(self.dp),
+            nn.MaxPool2d(2),
         )
 
         self.layer256_1 = nn.Sequential(
-            DiscretizedConv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1, discrt_lvls=discrt_lvls),
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(256),
-            nn.Dropout2d(self.dp),
-            nn.CELU()
+            # nn.Dropout2d(self.dp),
+            nn.ReLU()
         )
 
         self.layer256_2 = nn.Sequential(
-            DiscretizedConv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1, discrt_lvls=discrt_lvls),
-            nn.MaxPool2d(2),
+            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(256),
-            nn.Dropout2d(self.dp),
-            nn.CELU()
+            nn.ReLU(),
+            # nn.Dropout2d(self.dp),
+            nn.MaxPool2d(2),
         )
 
         self.layer512_1 = nn.Sequential(
-            DiscretizedConv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1, discrt_lvls=discrt_lvls),
+            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(512),
-            nn.Dropout2d(self.dp),
-            nn.CELU()
+            # nn.Dropout2d(self.dp),
+            nn.ReLU()
         )
 
         self.layer512_2 = nn.Sequential(
-            DiscretizedConv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1, discrt_lvls=discrt_lvls),
-            nn.MaxPool2d(2),
+            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(512),
-            nn.Dropout2d(self.dp),
-            nn.CELU()
+            nn.ReLU(),
+            # nn.Dropout2d(self.dp),
+            nn.MaxPool2d(2),
         )
 
         self.fc_layer1 = nn.Sequential(
-            DiscretizedLinear(in_features=512 * 4 * 4, out_features=1024, discrt_lvls=discrt_lvls),
+            nn.Linear(in_features=512 * 4 * 4, out_features=1024),
             nn.BatchNorm1d(1024),
-            nn.Dropout(self.dp),
-            nn.CELU()
+            # nn.Dropout(self.dp),
+            nn.ReLU()
         )
 
         self.fc_layer2 = nn.Sequential(
-            DiscretizedLinear(in_features=1024, out_features=1024, discrt_lvls=discrt_lvls),
-            nn.BatchNorm1d(1024),
-            nn.Dropout(self.dp),
-            nn.CELU()
+            nn.Linear(in_features=1024, out_features=10),
         )
 
-        self.fc_layer3 = nn.Sequential(
-            DiscretizedLinear(in_features=1024, out_features=10, discrt_lvls=discrt_lvls),
-            nn.BatchNorm1d(10),
-        )
 
     def forward(self, x):
         x = self.layer128_1(x)
@@ -92,7 +85,6 @@ class Cifar10Conv3NN(nn.Module):
         x = x.view(-1, 4*4*512)
         x = self.fc_layer1(x)
         x = self.fc_layer2(x)
-        x = self.fc_layer3(x)
         return x
 
 def main():
@@ -126,7 +118,7 @@ def main():
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
-    DISCRETE_LVLS_NUMBER = 8
+    # DISCRETE_LVLS_NUMBER = 8
 
     torch.manual_seed(args.seed)
 
@@ -137,7 +129,7 @@ def main():
     train_loader = torch.utils.data.DataLoader(
         datasets.CIFAR10('../data/', train=True, download=True,
                        transform=transforms.Compose([
-                           transforms.RandomAffine(degrees=35, shear=0.2),
+                        #    transforms.RandomAffine(degrees=35, shear=0.2),
                            transforms.RandomCrop(32, padding=4),
                            transforms.RandomHorizontalFlip(),
                            transforms.ToTensor(),
@@ -151,9 +143,10 @@ def main():
         ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-    model = Cifar10Conv3NN(discrt_lvls=DISCRETE_LVLS_NUMBER).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = MultiStepLR(optimizer, milestones=[20,80,150,250,400], gamma=0.7)
+    model = Cifar10ConvFloat().to(device)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay, momentum=0.9)
+    # optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = MultiStepLR(optimizer, milestones=[80, 120], gamma=0.1)
     # scheduler = StepLR(optimizer, step_size=50, gamma=0.5)  # managinng lr decay
 
     test_accuracy = []
@@ -166,15 +159,24 @@ def main():
         scheduler.step(epoch=epoch)
         if epoch > 10:
             if (args.save_model):
-                torch.save(model.state_dict(), f"../model/cifar10_conv_discrt_lvls_{DISCRETE_LVLS_NUMBER}.pt")
+                torch.save(model.state_dict(), f"../model/cifar10_float.pt")
 
             d = [train_accuracy, test_accuracy]
             export_data = zip_longest(*d, fillvalue='')
-            with open(f'../model/cifar10_conv_discrt_lvls_{DISCRETE_LVLS_NUMBER}_report.csv', 'w', encoding="ISO-8859-1", newline='') as report_file:
+            with open(f'../model/cifar10_float_report.csv', 'w', encoding="ISO-8859-1", newline='') as report_file:
                 wr = csv.writer(report_file)
                 wr.writerow(("Train accuracy", "Test accuracy"))
                 wr.writerows(export_data)
             report_file.close()
+
+    model.load_state_dict(torch.load(f"../model/cifar10_float.pt"))
+    for name, param in model.named_parameters():
+        avg = param.abs().mean().item()
+        print(f'{name} avg: {avg}')
+        out_tsr = torch.where(param.abs()>avg*0.7, param.abs(), torch.zeros_like(param))
+        out_avg = out_tsr.sum()/torch.nonzero(out_tsr).shape[0]
+        print(f'out_avg: {out_avg}')
+        print(f'coef: {out_avg/avg}')
 
 if __name__ == '__main__':
     main()
